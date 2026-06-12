@@ -1,6 +1,8 @@
+const Razorpay = require("razorpay");
 const express = require("express");
 const cors = require("cors");
 const mysql = require("mysql2");
+require("dotenv").config();
 
 const app = express();
 
@@ -22,6 +24,10 @@ db.connect((err) => {
   } else {
     console.log("MySQL Connected ✅");
   }
+});
+const razorpay = new Razorpay({
+  key_id: process.env.RAZORPAY_KEY_ID,
+  key_secret: process.env.RAZORPAY_KEY_SECRET,
 });
 
 // LOGIN
@@ -140,15 +146,28 @@ app.get("/products", (req, res) => {
 
 // ADD PRODUCT
 app.post("/products", (req, res) => {
-  const { name, category, price, stock, image } = req.body;
+  const {
+    name,
+    category,
+    price,
+    stock,
+    image,
+    discount = 0,
+  } = req.body;
+
+  if (discount < 0 || discount > 30) {
+    return res.status(400).json({
+      message: "Discount must be between 0 and 30",
+    });
+  }
 
   db.query(
     `
 INSERT INTO products
-(name, category, price, stock, image)
-VALUES (?, ?, ?, ?, ?)
+(name, category, price, stock, image, discount)
+VALUES (?, ?, ?, ?, ?, ?)
 `,
-    [name, category, price, stock, image],
+    [name, category, price, stock, image, discount],
 
     (err) => {
       if (err) {
@@ -189,7 +208,20 @@ app.delete("/products/:id", (req, res) => {
 app.put("/products/:id", (req, res) => {
   const id = req.params.id;
 
-  const { name, category, price, stock, image } = req.body;
+  const {
+    name,
+    category,
+    price,
+    stock,
+    image,
+    discount = 0,
+  } = req.body;
+
+  if (discount < 0 || discount > 30) {
+    return res.status(400).json({
+      message: "Discount must be between 0 and 30",
+    });
+  }
 
   db.query(
     `
@@ -199,21 +231,30 @@ name=?,
 category=?,
 price=?,
 stock=?,
-image=?
+image=?,
+discount=?
 WHERE id=?
 `,
-    [name, category, price, stock, image, id],
+    [
+      name,
+      category,
+      price,
+      stock,
+      image,
+      discount,
+      id,
+    ],
 
     (err, result) => {
       if (err) {
         console.log(err);
-        res.status(500).json(err);
-      } else {
-        res.json({
-          message: "Updated",
-          result,
-        });
+        return res.status(500).json(err);
       }
+
+      res.json({
+        message: "Updated",
+        result,
+      });
     },
   );
 });
@@ -241,6 +282,28 @@ VALUES (?,?)
       }
     },
   );
+});
+
+app.post("/create-order", async (req, res) => {
+  try {
+    const { amount } = req.body;
+
+    const options = {
+      amount: amount * 100, // paise
+      currency: "INR",
+      receipt: "receipt_" + Date.now(),
+    };
+
+    const order = await razorpay.orders.create(options);
+
+    res.json(order);
+  } catch (err) {
+    console.log(err);
+
+    res.status(500).json({
+      error: "Order creation failed",
+    });
+  }
 });
 
 // GET ORDERS
